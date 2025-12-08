@@ -525,20 +525,58 @@ class QuarkPanFileManager:
             json_data = response.json()
             return json_data['data']['task_id']
 
-    async def get_share_id(self, task_id: str) -> str:
-        params = {
-            'pr': 'ucpro',
-            'fr': 'pc',
-            'uc_param_str': '',
-            'task_id': task_id,
-            'retry_index': '0',
-        }
-        async with httpx.AsyncClient() as client:
-            timeout = httpx.Timeout(60.0, connect=60.0)
-            response = await client.get('https://drive-pc.quark.cn/1/clouddrive/task', params=params,
-                                        headers=self.headers, timeout=timeout)
-            json_data = response.json()
-            return json_data['data']['share_id']
+    async def get_share_id(self, task_id: str, retry: int = 30) -> str:
+        """
+        获取分享 ID（带轮询机制）
+
+        Args:
+            task_id: 分享任务 ID
+            retry: 最大重试次数，默认30次
+
+        Returns:
+            分享 ID
+
+        Raises:
+            Exception: 获取失败或超时时抛出异常
+        """
+        for i in range(retry):
+            # 等待任务处理
+            await asyncio.sleep(random.randint(500, 1000) / 1000)
+
+            params = {
+                'pr': 'ucpro',
+                'fr': 'pc',
+                'uc_param_str': '',
+                'task_id': task_id,
+                'retry_index': str(i),
+            }
+
+            async with httpx.AsyncClient() as client:
+                timeout = httpx.Timeout(60.0, connect=60.0)
+                response = await client.get('https://drive-pc.quark.cn/1/clouddrive/task', params=params,
+                                            headers=self.headers, timeout=timeout)
+                json_data = response.json()
+
+                # 检查响应状态
+                if json_data.get('message') == 'ok' and json_data.get('data'):
+                    data = json_data['data']
+                    status = data.get('status')
+
+                    # status = 2 表示任务完成
+                    if status == 2 and data.get('share_id'):
+                        return data['share_id']
+                    # status = 1 表示任务失败
+                    elif status == 1:
+                        custom_print(f"分享任务失败：{data.get('task_title', '未知错误')}", error_msg=True)
+                        raise Exception(f"分享任务失败：{data.get('task_title', '未知错误')}")
+                    # status = 0 或其他表示任务进行中，继续轮询
+                else:
+                    # 如果响应异常，继续重试
+                    continue
+
+        # 超过重试次数
+        custom_print(f"获取分享 ID 超时，任务可能仍在处理中（task_id: {task_id}）", error_msg=True)
+        raise Exception(f"获取分享 ID 超时，任务可能仍在处理中（task_id: {task_id}）")
 
     async def submit_share(self, share_id: str) -> tuple:
         params = {
