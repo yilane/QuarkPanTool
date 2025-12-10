@@ -16,6 +16,8 @@ QuarkPanTool 是一个简单易用的小工具，旨在帮助用户快速批量�
 - 🔗 批量分享：支持一次性将某个文件夹内的所有文件夹批量生成分享链接，无需手动分享文件。
 - 💾 本地下载：支持批量下载网盘文件夹中的文件，已绕过 web 端文件大小下载限制，无需 VIP。
 - 🚀 API 服务：提供 RESTful API 接口，支持二次开发和集成。
+- 🔄 批量转存分享：API 模式支持批量转存多个链接并自动生成新的分享链接。
+- 🛡️ 网络重试机制：自动处理网络异常，提高任务执行成功率。
 
 ## 如何使用
 
@@ -64,11 +66,13 @@ cp .env.example .env
 ```
 
 配置项说明：
-- `API_HOST`: 服务监听地址（默认 `0.0.0.0`）
-- `API_PORT`: 服务端口（默认 `8080`）
-- `SESSION_EXPIRE_HOURS`: Session 过期时间（默认 `24` 小时）
-- `CORS_ORIGINS`: CORS 允许的源（默认 `*`）
+- `HOST`: 服务监听地址（默认 `0.0.0.0`）
+- `PORT`: 服务端口（默认 `8007`）
+- `TOKEN_EXPIRE_HOURS`: Token 有效期（默认 `240` 小时）
+- `TOKEN_CLEANUP_INTERVAL`: Session 清理间隔（默认 `3600` 秒）
 - `LOG_LEVEL`: 日志级别（默认 `INFO`）
+- `LOG_FILE`: 日志文件路径（默认 `logs/api.log`）
+- `DEBUG`: 调试模式（默认 `True`）
 
 **2. 启动服务**
 
@@ -84,21 +88,23 @@ start_api.bat               # Windows
 **3. 访问文档**
 
 服务启动后，访问以下地址查看 API 文档：
-- Swagger 文档：http://localhost:8080/docs
-- ReDoc 文档：http://localhost:8080/redoc
+- Swagger 文档：http://localhost:8007/docs
+- ReDoc 文档：http://localhost:8007/redoc
+
+> 注：默认端口为 8007，如需修改请在 `.env` 文件中配置 `PORT` 参数
 
 **4. 使用示例**
 
 ```bash
 # 登录获取 Token
-curl -X POST "http://localhost:8080/api/v1/auth/login" \
+curl -X POST "http://localhost:8007/api/v1/auth/login" \
   -H "Content-Type: application/json" \
   -d '{
     "cookies": "你的Cookie字符串"
   }'
 
 # 使用 Token 调用 API（转存并分享）
-curl -X POST "http://localhost:8080/api/v1/share/transfer-and-share" \
+curl -X POST "http://localhost:8007/api/v1/share/transfer-and-share" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -109,12 +115,27 @@ curl -X POST "http://localhost:8080/api/v1/share/transfer-and-share" \
   }'
 
 # 创建网盘目录
-curl -X POST "http://localhost:8080/api/v1/directory/create" \
+curl -X POST "http://localhost:8007/api/v1/directory/create" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "dir_name": "我的文件夹",
     "parent_dir_id": "0"
+  }'
+
+# 批量转存并分享（一次处理多个链接）
+curl -X POST "http://localhost:8007/api/v1/share/batch-transfer-and-share" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "share_urls": [
+      "https://pan.quark.cn/s/abcd1?pwd=123456",
+      "https://pan.quark.cn/s/abcd2?pwd=654321",
+      "https://pan.quark.cn/s/abcd3"
+    ],
+    "save_dir_id": "0",
+    "share_expire_type": 2,
+    "share_url_type": 1
   }'
 ```
 
@@ -127,6 +148,7 @@ curl -X POST "http://localhost:8080/api/v1/directory/create" \
 | `/api/v1/auth/verify` | GET | 验证登录状态是否有效 |
 | `/api/v1/directory/create` | POST | 创建网盘目录 |
 | `/api/v1/share/transfer-and-share` | POST | 转存分享链接并生成新的分享链接 |
+| `/api/v1/share/batch-transfer-and-share` | POST | **批量转存并生成分享链接（新增）** |
 | `/api/v1/task/status` | POST | 查询任务执行状态 |
 | `/api/health` | GET | 健康检查 |
 
@@ -147,9 +169,10 @@ curl -X POST "http://localhost:8080/api/v1/directory/create" \
 ### API 服务模式注意事项
 
 - **认证机制**：所有 API 请求（除登录接口外）需在请求头中携带 `Authorization: Bearer <token>`。
-- **Token 有效期**：Session Token 默认 24 小时有效期，过期后需重新登录获取新 Token。
+- **Token 有效期**：Token 默认 240 小时（10天）有效期，过期后需重新登录获取新 Token。
 - **Cookie 获取**：可通过浏览器开发者工具获取 Cookie 字符串，具体方法请参考 [wiki](https://github.com/ihmily/QuarkPanTool/wiki)。
-- **CORS 配置**：如需在浏览器端调用 API，请在 `.env` 文件中配置 `CORS_ORIGINS`。
+- **批量转存**：使用批量转存接口时，系统会自动为每个链接添加 2-4 秒的延迟，避免触发服务器限制。
+- **网络重试**：系统内置网络重试机制，单次请求失败会自动重试最多 3 次，提高成功率。
 
 ## 项目结构
 
@@ -228,7 +251,15 @@ Linux 环境下 Playwright 可能无法正常启动浏览器，建议手动获�
 
 ### 6. 如何修改 API 服务端口？
 
-在 `.env` 文件中修改 `API_PORT` 配置项，或直接修改 `api/config.py` 中的默认值。
+在 `.env` 文件中修改 `PORT` 配置项，或直接修改 `api/config.py` 中的默认值。
+
+### 7. 批量转存时为什么处理很慢？
+
+为了避免触发服务器的频率限制，系统会在每个链接处理之间自动添加 2-4 秒的延迟。这是正常现象，可以提高成功率。
+
+### 8. 网络请求失败会怎样？
+
+系统内置了网络重试机制，单次请求失败会自动重试最多 3 次。如果 3 次都失败，会在批量处理结果中标记为失败，并返回错误信息。
 
 ## 贡献指南
 
@@ -254,12 +285,19 @@ Linux 环境下 Playwright 可能无法正常启动浏览器，建议手动获�
 - 绕过文件下载大小限制
 - 改进错误处理
 
-### v0.0.6（新增）
+### v0.0.6
 - 🚀 新增 FastAPI RESTful API 服务模式
 - 🔐 支持 Token 认证和 Session 管理
 - 📝 提供 Swagger 和 ReDoc API 文档
 - 🔄 独立的 API 业务逻辑实现
 - ⚙️ 支持环境变量配置
+
+### v0.0.7（当前版本）
+- ✨ **新增批量转存并分享接口** - 支持一次处理多个分享链接
+- 🛡️ **增强网络重试机制** - 单次请求失败自动重试最多 3 次
+- 📊 **改进错误处理** - 更详细的错误信息和调试日志
+- ⚙️ **优化配置项** - 更新环境变量配置，延长默认 Token 有效期至 240 小时
+- 🎯 **批量处理优化** - 自动添加请求延迟，避免触发服务器限制
 
 ## 许可证
 
