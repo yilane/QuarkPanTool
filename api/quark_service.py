@@ -20,6 +20,8 @@ from api.models import (
     TransferInfo,
     TransferAndShareResponse,
     TaskStatusResponse,
+    BatchTransferResult,
+    BatchTransferAndShareResponse,
 )
 from utils import get_timestamp
 
@@ -179,14 +181,42 @@ class QuarkService:
         api = "https://drive-pc.quark.cn/1/clouddrive/share/sharepage/token"
         data = {"pwd_id": pwd_id, "passcode": password}
 
-        async with httpx.AsyncClient() as client:
-            timeout = httpx.Timeout(60.0, connect=60.0)
-            response = await client.post(api, json=data, params=params, headers=self.headers, timeout=timeout)
-            json_data = response.json()
-            if json_data['status'] == 200 and json_data['data']:
-                return json_data["data"]["stoken"]
-            else:
-                raise Exception(f"获取 stoken 失败：{json_data.get('message', '未知错误')}")
+        try:
+            async with httpx.AsyncClient() as client:
+                timeout = httpx.Timeout(60.0, connect=60.0)
+                response = await client.post(api, json=data, params=params, headers=self.headers, timeout=timeout)
+
+                # 检查 HTTP 状态码
+                if response.status_code != 200:
+                    raise Exception(f"HTTP 请求失败，状态码: {response.status_code}, 响应: {response.text[:200]}")
+
+                json_data = response.json()
+                print(f"[调试] get_stoken 响应: {json_data}")
+
+                # 检查响应状态
+                if not isinstance(json_data, dict):
+                    raise Exception(f"获取 stoken 失败：响应格式异常，实际类型: {type(json_data)}")
+
+                status = json_data.get('status')
+                if status == 200 and json_data.get('data') and json_data['data'].get('stoken'):
+                    return json_data["data"]["stoken"]
+                else:
+                    error_msg = json_data.get('message', '')
+                    error_code = json_data.get('code', '')
+                    if error_code or error_msg:
+                        raise Exception(f"获取 stoken 失败 [code={error_code}]: {error_msg}")
+                    else:
+                        raise Exception(f"获取 stoken 失败：状态码 {status}，响应数据异常，完整响应: {json_data}")
+        except httpx.RequestError as e:
+            error_detail = str(e) if str(e) else f"{type(e).__name__}"
+            raise Exception(f"网络请求失败：{error_detail}")
+        except KeyError as e:
+            raise Exception(f"响应数据缺少必需字段：{str(e)}")
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"未知异常：{type(e).__name__}"
+            if "获取 stoken 失败" in error_msg or "HTTP 请求失败" in error_msg or "网络请求失败" in error_msg:
+                raise
+            raise Exception(f"获取 stoken 失败：{error_msg}")
 
     async def get_detail(self, pwd_id: str, stoken: str, pdir_fid: str = '0'):
         """获取分享文件详情"""
@@ -194,53 +224,79 @@ class QuarkService:
         page = 1
         file_list: List[Dict[str, Any]] = []
 
-        async with httpx.AsyncClient() as client:
-            while True:
-                params = {
-                    'pr': 'ucpro',
-                    'fr': 'pc',
-                    'uc_param_str': '',
-                    "pwd_id": pwd_id,
-                    "stoken": stoken,
-                    'pdir_fid': pdir_fid,
-                    'force': '0',
-                    "_page": str(page),
-                    '_size': '50',
-                    '_sort': 'file_type:asc,updated_at:desc',
-                    '__dt': random.randint(200, 9999),
-                    '__t': get_timestamp(13),
-                }
-
-                timeout = httpx.Timeout(60.0, connect=60.0)
-                response = await client.get(api, headers=self.headers, params=params, timeout=timeout)
-                json_data = response.json()
-
-                is_owner = json_data['data']['is_owner']
-                _total = json_data['metadata']['_total']
-                if _total < 1:
-                    return is_owner, file_list
-
-                _size = json_data['metadata']['_size']
-                _count = json_data['metadata']['_count']
-                _list = json_data["data"]["list"]
-
-                for file in _list:
-                    d: Dict[str, Any] = {
-                        "fid": file["fid"],
-                        "file_name": file["file_name"],
-                        "file_type": file["file_type"],
-                        "dir": file["dir"],
-                        "pdir_fid": file["pdir_fid"],
-                        "include_items": file.get("include_items", ''),
-                        "share_fid_token": file["share_fid_token"],
-                        "status": file["status"]
+        try:
+            async with httpx.AsyncClient() as client:
+                while True:
+                    params = {
+                        'pr': 'ucpro',
+                        'fr': 'pc',
+                        'uc_param_str': '',
+                        "pwd_id": pwd_id,
+                        "stoken": stoken,
+                        'pdir_fid': pdir_fid,
+                        'force': '0',
+                        "_page": str(page),
+                        '_size': '50',
+                        '_sort': 'file_type:asc,updated_at:desc',
+                        '__dt': random.randint(200, 9999),
+                        '__t': get_timestamp(13),
                     }
-                    file_list.append(d)
 
-                if _total <= _size or _count < _size:
-                    return is_owner, file_list
+                    timeout = httpx.Timeout(60.0, connect=60.0)
+                    response = await client.get(api, headers=self.headers, params=params, timeout=timeout)
 
-                page += 1
+                    # 检查 HTTP 状态码
+                    if response.status_code != 200:
+                        raise Exception(f"HTTP 请求失败，状态码: {response.status_code}, 响应: {response.text[:200]}")
+
+                    json_data = response.json()
+                    print(f"[调试] get_detail 响应: {json_data}")
+
+                    # 检查响应数据
+                    if not isinstance(json_data, dict):
+                        raise Exception(f"响应格式异常，实际类型: {type(json_data)}")
+
+                    if 'data' not in json_data or 'metadata' not in json_data:
+                        error_msg = json_data.get('message', '未知错误')
+                        error_code = json_data.get('code', '')
+                        raise Exception(f"获取文件详情失败 [code={error_code}]: {error_msg}，完整响应: {json_data}")
+
+                    is_owner = json_data['data'].get('is_owner', 0)
+                    _total = json_data['metadata'].get('_total', 0)
+                    if _total < 1:
+                        return is_owner, file_list
+
+                    _size = json_data['metadata']['_size']
+                    _count = json_data['metadata']['_count']
+                    _list = json_data["data"]["list"]
+
+                    for file in _list:
+                        d: Dict[str, Any] = {
+                            "fid": file["fid"],
+                            "file_name": file["file_name"],
+                            "file_type": file["file_type"],
+                            "dir": file["dir"],
+                            "pdir_fid": file["pdir_fid"],
+                            "include_items": file.get("include_items", ''),
+                            "share_fid_token": file["share_fid_token"],
+                            "status": file["status"]
+                        }
+                        file_list.append(d)
+
+                    if _total <= _size or _count < _size:
+                        return is_owner, file_list
+
+                    page += 1
+        except httpx.RequestError as e:
+            error_detail = str(e) if str(e) else f"{type(e).__name__}"
+            raise Exception(f"网络请求失败：{error_detail}")
+        except KeyError as e:
+            raise Exception(f"响应数据缺少必需字段：{str(e)}")
+        except Exception as e:
+            error_msg = str(e) if str(e) else f"未知异常：{type(e).__name__}"
+            if "获取文件详情失败" in error_msg or "响应格式异常" in error_msg or "网络请求失败" in error_msg or "HTTP 请求失败" in error_msg:
+                raise
+            raise Exception(f"获取文件详情失败：{error_msg}")
 
     async def get_sorted_file_list(self, pdir_fid='0', page='1', size='100', fetch_total='false', sort=''):
         """获取文件列表"""
@@ -299,7 +355,9 @@ class QuarkService:
                 raise Exception(f"获取转存任务 ID 失败：{json_data.get('message', '未知错误')}")
 
     async def submit_task(self, task_id: str, retry: int = 50):
-        """提交并等待任务完成"""
+        """提交并等待任务完成（带网络重试机制）"""
+        network_retry_count = 3  # 每次轮询的网络重试次数
+
         for i in range(retry):
             await asyncio.sleep(random.randint(500, 1000) / 1000)
 
@@ -308,14 +366,49 @@ class QuarkService:
                 f"task_id={task_id}&retry_index={i}&__dt=21192&__t={get_timestamp(13)}"
             )
 
-            async with httpx.AsyncClient() as client:
-                timeout = httpx.Timeout(60.0, connect=60.0)
-                response = await client.get(submit_url, headers=self.headers, timeout=timeout)
-                json_data = response.json()
+            # 网络请求重试机制
+            for attempt in range(network_retry_count):
+                try:
+                    async with httpx.AsyncClient() as client:
+                        timeout = httpx.Timeout(60.0, connect=60.0)
+                        response = await client.get(submit_url, headers=self.headers, timeout=timeout)
 
-            if json_data['message'] == 'ok':
-                if json_data['data']['status'] == 2:
+                        if response.status_code != 200:
+                            if attempt < network_retry_count - 1:
+                                print(f"[警告] 任务查询 HTTP 状态码 {response.status_code}，第 {attempt+1} 次重试...")
+                                await asyncio.sleep(1.0)
+                                continue
+                            else:
+                                raise Exception(f"HTTP 请求失败，状态码: {response.status_code}")
+
+                        json_data = response.json()
+                        break  # 成功获取响应，跳出重试循环
+
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
+                    if attempt < network_retry_count - 1:
+                        print(f"[警告] 网络错误 ({type(e).__name__})，第 {attempt+1} 次重试...")
+                        await asyncio.sleep(2.0)  # 网络错误时等待更长时间
+                        continue
+                    else:
+                        # 最后一次重试也失败，抛出异常
+                        raise Exception(f"网络连接失败，已重试 {network_retry_count} 次：{type(e).__name__}")
+                except Exception as e:
+                    if attempt < network_retry_count - 1 and "JSON" not in str(e):
+                        print(f"[警告] 请求异常 ({str(e)[:50]})，第 {attempt+1} 次重试...")
+                        await asyncio.sleep(1.0)
+                        continue
+                    else:
+                        raise
+
+            # 检查任务状态
+            if json_data.get('message') == 'ok':
+                if json_data.get('data') and json_data['data'].get('status') == 2:
+                    print(f"[转存] 任务完成（第 {i+1}/{retry} 次轮询）")
                     return json_data
+                elif json_data.get('data') and json_data['data'].get('status') == 1:
+                    # 任务失败
+                    raise Exception(f"任务失败：{json_data['data'].get('task_title', '未知错误')}")
+                # status == 0，任务进行中，继续轮询
             else:
                 if json_data.get('code') == 32003:
                     raise Exception("转存失败，网盘容量不足")
@@ -324,7 +417,7 @@ class QuarkService:
                 else:
                     raise Exception(f"任务失败：{json_data.get('message', '未知错误')}")
 
-        raise Exception("任务超时")
+        raise Exception(f"任务超时（已轮询 {retry} 次）")
 
     async def get_share_task_id(self, fid_list: List[str], file_name: str, url_type: int = 1,
                                 expired_type: int = 2, password: str = '') -> str:
@@ -375,7 +468,7 @@ class QuarkService:
 
     async def get_share_id(self, task_id: str, retry: int = 30) -> str:
         """
-        获取分享 ID（带轮询机制）
+        获取分享 ID（带轮询和网络重试机制）
 
         Args:
             task_id: 分享任务 ID
@@ -387,6 +480,8 @@ class QuarkService:
         Raises:
             Exception: 获取失败或超时时抛出异常
         """
+        network_retry_count = 3  # 每次轮询的网络重试次数
+
         for i in range(retry):
             # 等待任务处理
             await asyncio.sleep(random.randint(500, 1000) / 1000)
@@ -399,36 +494,66 @@ class QuarkService:
                 'retry_index': str(i),
             }
 
-            async with httpx.AsyncClient() as client:
-                timeout = httpx.Timeout(60.0, connect=60.0)
-                response = await client.get(
-                    'https://drive-pc.quark.cn/1/clouddrive/task',
-                    params=params,
-                    headers=self.headers,
-                    timeout=timeout
-                )
-                result = response.json()
+            # 网络请求重试机制
+            for attempt in range(network_retry_count):
+                try:
+                    async with httpx.AsyncClient() as client:
+                        timeout = httpx.Timeout(60.0, connect=60.0)
+                        response = await client.get(
+                            'https://drive-pc.quark.cn/1/clouddrive/task',
+                            params=params,
+                            headers=self.headers,
+                            timeout=timeout
+                        )
 
-                # 检查响应状态
-                if result.get('message') == 'ok' and result.get('data'):
-                    data = result['data']
+                        if response.status_code != 200:
+                            if attempt < network_retry_count - 1:
+                                print(f"[警告] 分享任务查询 HTTP 状态码 {response.status_code}，第 {attempt+1} 次重试...")
+                                await asyncio.sleep(1.0)
+                                continue
+                            else:
+                                raise Exception(f"HTTP 请求失败，状态码: {response.status_code}")
 
-                    # 检查任务状态
-                    status = data.get('status')
+                        result = response.json()
+                        break  # 成功获取响应，跳出重试循环
 
-                    # status = 2 表示任务完成
-                    if status == 2 and data.get('share_id'):
-                        return data['share_id']
-                    # status = 1 表示任务失败
-                    elif status == 1:
-                        raise Exception(f"分享任务失败：{data.get('task_title', '未知错误')}")
-                    # status = 0 或其他表示任务进行中，继续轮询
-                else:
-                    # 如果响应异常，继续重试
-                    continue
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as e:
+                    if attempt < network_retry_count - 1:
+                        print(f"[警告] 网络错误 ({type(e).__name__})，第 {attempt+1} 次重试...")
+                        await asyncio.sleep(2.0)
+                        continue
+                    else:
+                        # 最后一次重试也失败，抛出异常
+                        raise Exception(f"网络连接失败，已重试 {network_retry_count} 次：{type(e).__name__}")
+                except Exception as e:
+                    if attempt < network_retry_count - 1 and "JSON" not in str(e):
+                        print(f"[警告] 请求异常 ({str(e)[:50]})，第 {attempt+1} 次重试...")
+                        await asyncio.sleep(1.0)
+                        continue
+                    else:
+                        raise
+
+            # 检查响应状态
+            if result.get('message') == 'ok' and result.get('data'):
+                data = result['data']
+
+                # 检查任务状态
+                status = data.get('status')
+
+                # status = 2 表示任务完成
+                if status == 2 and data.get('share_id'):
+                    print(f"[分享] 任务完成（第 {i+1}/{retry} 次轮询）")
+                    return data['share_id']
+                # status = 1 表示任务失败
+                elif status == 1:
+                    raise Exception(f"分享任务失败：{data.get('task_title', '未知错误')}")
+                # status = 0 或其他表示任务进行中，继续轮询
+            else:
+                # 如果响应异常，继续重试
+                continue
 
         # 超过重试次数
-        raise Exception(f"获取分享 ID 超时，任务可能仍在处理中（task_id: {task_id}）")
+        raise Exception(f"获取分享 ID 超时（已轮询 {retry} 次），任务可能仍在处理中（task_id: {task_id}）")
 
     async def submit_share(self, share_id: str) -> tuple:
         """提交分享并获取分享链接"""
@@ -485,19 +610,27 @@ class QuarkService:
         Raises:
             Exception: 转存或分享失败时抛出异常
         """
+        print(f"[转存] 开始处理链接: {share_url}")
+
         # 1. 解析分享链接
         pwd_id = self.get_pwd_id(share_url)
         match_password = re.search("pwd=(.*?)(?=$|&)", share_url)
         password = match_password.group(1) if match_password else ""
 
+        print(f"[转存] pwd_id: {pwd_id}, password: {'******' if password else '(无密码)'}")
+
         if not pwd_id:
             raise Exception("分享链接格式不正确")
 
         # 2. 获取 stoken
+        print(f"[转存] 正在获取 stoken...")
         stoken = await self.get_stoken(pwd_id, password)
+        print(f"[转存] stoken 获取成功")
 
         # 3. 获取文件详情
+        print(f"[转存] 正在获取文件详情...")
         is_owner, data_list = await self.get_detail(pwd_id, stoken)
+        print(f"[转存] 文件详情获取成功，文件数量: {len(data_list)}, is_owner: {is_owner}")
 
         if not data_list:
             raise Exception("分享链接中没有文件")
@@ -523,13 +656,17 @@ class QuarkService:
         fid_list = [i["fid"] for i in data_list]
         share_fid_token_list = [i["share_fid_token"] for i in data_list]
 
+        print(f"[转存] 正在创建转存任务...")
         task_id = await self.get_share_save_task_id(
             pwd_id, stoken, fid_list, share_fid_token_list, to_pdir_fid=save_dir_id
         )
+        print(f"[转存] 转存任务已创建，task_id: {task_id}")
 
         # 6. 等待转存完成
+        print(f"[转存] 等待转存任务完成...")
         result = await self.submit_task(task_id)
         save_dir_name = result['data']['save_as'].get('to_pdir_name', '根目录')
+        print(f"[转存] 转存完成，保存到: {save_dir_name}")
 
         # 7. 获取转存后的文件 ID 列表(分享转存的文件本身,而不是保存目录)
         # 等待一小段时间，确保文件已经出现在目录中
@@ -677,3 +814,100 @@ class QuarkService:
                 message=message,
                 result=data
             )
+
+    async def batch_transfer_and_share(
+        self,
+        share_urls: List[str],
+        save_dir_id: str = "0",
+        share_expire_type: int = 2,
+        share_url_type: int = 1,
+        share_password: str = ""
+    ) -> BatchTransferAndShareResponse:
+        """
+        批量转存分享链接并生成新的分享链接
+
+        Args:
+            share_urls: 要转存的分享链接列表
+            save_dir_id: 保存目录 ID
+            share_expire_type: 分享时长（1=永久 2=1天 3=7天 4=30天）
+            share_url_type: 分享类型（1=公开 2=加密）
+            share_password: 分享密码
+
+        Returns:
+            批量转存和分享结果
+
+        Raises:
+            Exception: 批量处理失败时抛出异常
+        """
+        results: List[BatchTransferResult] = []
+        success_count = 0
+        failed_count = 0
+
+        print(f"\n{'='*60}")
+        print(f"[批量转存] 开始批量处理，共 {len(share_urls)} 个链接")
+        print(f"{'='*60}\n")
+
+        for idx, original_url in enumerate(share_urls, 1):
+            print(f"\n{'─'*60}")
+            print(f"[批量转存] [{idx}/{len(share_urls)}] 正在处理: {original_url}")
+            print(f"{'─'*60}")
+
+            try:
+                # 调用单个转存并分享方法
+                result = await self.transfer_and_share(
+                    share_url=original_url,
+                    save_dir_id=save_dir_id,
+                    share_expire_type=share_expire_type,
+                    share_url_type=share_url_type,
+                    share_password=share_password
+                )
+
+                # 成功
+                results.append(BatchTransferResult(
+                    original_url=original_url,
+                    new_share_url=result.share_url,
+                    success=True,
+                    error_message=None,
+                    transfer_info=result.transfer_info,
+                    share_title=result.share_title
+                ))
+                success_count += 1
+                print(f"✓ [成功] 新分享链接: {result.share_url}")
+
+            except Exception as e:
+                # 失败 - 确保错误消息不为空
+                error_msg = str(e) if str(e) else f"未知错误：{type(e).__name__}"
+                results.append(BatchTransferResult(
+                    original_url=original_url,
+                    new_share_url=None,
+                    success=False,
+                    error_message=error_msg,
+                    transfer_info=None,
+                    share_title=None
+                ))
+                failed_count += 1
+                print(f"✗ [失败] {error_msg}")
+
+            # 添加随机延迟，避免请求过快
+            # 每处理一个链接后都延迟（包括最后一个），确保服务器不会被限制
+            if idx < len(share_urls):
+                delay = random.uniform(2.0, 4.0)  # 增加延迟到 2-4 秒
+                print(f"\n⏳ 等待 {delay:.1f} 秒后处理下一个链接...")
+                await asyncio.sleep(delay)
+
+        # 打印汇总统计
+        print(f"\n{'='*60}")
+        print(f"[批量转存] 处理完成")
+        print(f"{'='*60}")
+        print(f"总计: {len(share_urls)} 个链接")
+        print(f"✓ 成功: {success_count} 个 ({success_count/len(share_urls)*100:.1f}%)")
+        print(f"✗ 失败: {failed_count} 个 ({failed_count/len(share_urls)*100:.1f}%)")
+        print(f"{'='*60}\n")
+
+        # 返回批量处理结果
+        return BatchTransferAndShareResponse(
+            total=len(share_urls),
+            success_count=success_count,
+            failed_count=failed_count,
+            results=results
+        )

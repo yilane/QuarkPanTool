@@ -77,6 +77,35 @@ class TransferAndShareResponse(BaseModel):
     share_title: str = Field(..., description="分享标题")
 
 
+# ==================== 批量转存和分享相关模型 ====================
+
+class BatchTransferAndShareRequest(BaseModel):
+    """批量转存并分享请求模型"""
+    share_urls: List[str] = Field(..., description="要转存的分享链接列表", min_length=1)
+    save_dir_id: str = Field("0", description="转存到的目录 ID，默认为根目录")
+    share_expire_type: int = Field(2, description="分享时长：1=永久 2=1天 3=7天 4=30天", ge=1, le=4)
+    share_url_type: int = Field(1, description="分享类型：1=公开 2=加密", ge=1, le=2)
+    share_password: Optional[str] = Field("", description="分享密码（加密时需要）", max_length=6)
+
+
+class BatchTransferResult(BaseModel):
+    """单个链接的批量转存结果"""
+    original_url: str = Field(..., description="原始分享链接")
+    new_share_url: Optional[str] = Field(None, description="新生成的分享链接")
+    success: bool = Field(..., description="是否成功")
+    error_message: Optional[str] = Field(None, description="错误信息（失败时）")
+    transfer_info: Optional[TransferInfo] = Field(None, description="转存信息（成功时）")
+    share_title: Optional[str] = Field(None, description="分享标题（成功时）")
+
+
+class BatchTransferAndShareResponse(BaseModel):
+    """批量转存并分享响应数据"""
+    total: int = Field(..., description="总链接数")
+    success_count: int = Field(..., description="成功数量")
+    failed_count: int = Field(..., description="失败数量")
+    results: List[BatchTransferResult] = Field(..., description="每个链接的处理结果")
+
+
 # ==================== 任务状态查询相关模型 ====================
 
 class TaskStatusRequest(BaseModel):

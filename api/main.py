@@ -27,6 +27,8 @@ from api.models import (
     TransferAndShareResponse,
     TaskStatusRequest,
     TaskStatusResponse,
+    BatchTransferAndShareRequest,
+    BatchTransferAndShareResponse,
 )
 from api.session_manager import session_manager
 from api.quark_service import QuarkService
@@ -341,6 +343,51 @@ async def transfer_and_share(
         return ResponseModel(
             code=400,
             message=f"操作失败: {str(e)}",
+            data=None
+        )
+
+
+@app.post(
+    f"{settings.API_PREFIX}/share/batch-transfer-and-share",
+    response_model=ResponseModel,
+    tags=["转存分享"],
+    summary="批量转存并生成分享链接",
+    description="批量将多个分享链接的文件转存到网盘，然后为每个转存的文件生成新的分享链接"
+)
+async def batch_transfer_and_share(
+    request: BatchTransferAndShareRequest,
+    service: QuarkService = Depends(get_current_service)
+):
+    """
+    批量转存并生成分享链接
+
+    - **share_urls**: 要转存的分享链接列表（必填，至少一个）
+    - **save_dir_id**: 转存到的目录 ID，默认为根目录 "0"
+    - **share_expire_type**: 分享时长（1=永久 2=1天 3=7天 4=30天）
+    - **share_url_type**: 分享类型（1=公开 2=加密）
+    - **share_password**: 分享密码（加密时需要）
+
+    返回每个链接的转存结果，包括原始链接和新生成的分享链接的对应关系
+    """
+    try:
+        result = await service.batch_transfer_and_share(
+            share_urls=request.share_urls,
+            save_dir_id=request.save_dir_id,
+            share_expire_type=request.share_expire_type,
+            share_url_type=request.share_url_type,
+            share_password=request.share_password
+        )
+
+        return ResponseModel(
+            code=200,
+            message=f"批量转存完成：成功 {result.success_count} 个，失败 {result.failed_count} 个",
+            data=result.model_dump()
+        )
+
+    except Exception as e:
+        return ResponseModel(
+            code=400,
+            message=f"批量操作失败: {str(e)}",
             data=None
         )
 
