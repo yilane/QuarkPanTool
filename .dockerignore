@@ -1,0 +1,68 @@
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# Python 相关
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info
+dist/
+build/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code
+.claude/
+
+# Docker 相关
+Dockerfile
+docker-compose.yml
+.dockerignore
+*.dockerfile
+
+# 文档和图片
+*.md
+README.md
+CLAUDE.md
+images/
+*.jpg
+*.png
+*.gif
+
+# 日志和临时文件
+logs/
+*.log
+*.tmp
+*.temp
+
+# 下载的文件（按需保留）
+downloads/
+
+# 其他
+.env.example
+*.bak
+*.backup

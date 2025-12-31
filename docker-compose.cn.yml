@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  quarkpantool:
+    build:
+      context: .
+      dockerfile: Dockerfile.cn  # 使用国内镜像源的 Dockerfile
+    container_name: quarkpantool
+    image: quarkpantool:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8007}:8007"
+    environment:
+      # Token 有效期（小时）
+      - TOKEN_EXPIRE_HOURS=${TOKEN_EXPIRE_HOURS:-240}
+      # Session 清理间隔（秒）
+      - TOKEN_CLEANUP_INTERVAL=${TOKEN_CLEANUP_INTERVAL:-3600}
+      # 服务器配置
+      - HOST=0.0.0.0
+      - PORT=8007
+      # 调试模式
+      - DEBUG=${DEBUG:-True}
+      # 日志级别
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # 日志文件路径
+      - LOG_FILE=/app/logs/api.log
+    volumes:
+      # 持久化配置文件
+      - ./config:/app/config
+      # 持久化分享链接
+      - ./share:/app/share
+      # 持久化下载文件
+      - ./downloads:/app/downloads
+      # 持久化日志
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - quarkpan-network
+
+networks:
+  quarkpan-network:
+    driver: bridge

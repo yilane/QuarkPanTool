@@ -41,7 +41,91 @@ playwright install firefox
 
 ### 使用方式
 
-#### 方式一：命令行模式（CLI）
+#### 方式一：Docker 模式（推荐）
+
+适合快速部署和生产环境使用，无需手动配置 Python 环境。
+
+**前置要求**：
+- 已安装 Docker 和 docker-compose
+
+> **📘 提示**：如果你只需要使用 API 功能，查看 [API 快速开始指南](API_QUICKSTART.md)
+
+**快速开始**：
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/ihmily/QuarkPanTool.git
+cd QuarkPanTool
+
+# 2. 复制并配置环境变量（可选）
+cp .env.example .env
+# 编辑 .env 文件修改配置
+
+# 3. 使用启动脚本
+# Linux/macOS（国际网络）
+./start_docker.sh build    # 构建镜像
+./start_docker.sh up       # 启动服务
+
+# Linux/macOS（国内网络，推荐）
+./start_docker.sh build-cn # 使用国内镜像源构建，速度更快
+./start_docker.sh up       # 启动服务
+
+# Windows（国际网络）
+start_docker.bat build     # 构建镜像
+start_docker.bat up        # 启动服务
+
+# Windows（国内网络，推荐）
+start_docker.bat build-cn  # 使用国内镜像源构建，速度更快
+start_docker.bat up        # 启动服务
+
+# 4. 访问服务
+# 浏览器访问: http://localhost:8007/docs
+```
+
+> **💡 提示**：如果构建失败，查看 [QUICK_FIX.md](QUICK_FIX.md) 快速修复指南
+
+**Docker 命令说明**：
+
+| 命令 | 说明 |
+|------|------|
+| `build` | 构建 Docker 镜像（国际网络） |
+| `build-cn` | 构建 Docker 镜像（使用国内镜像源，推荐） |
+| `up` | 启动服务（后台运行） |
+| `down` | 停止服务 |
+| `restart` | 重启服务 |
+| `logs` | 查看实时日志 |
+| `ps` | 查看运行状态 |
+| `clean` | 清理所有容器和镜像 |
+| `shell` | 进入容器 Shell（调试用） |
+
+**手动使用 docker-compose**：
+
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动服务（后台运行）
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+
+# 重启服务
+docker-compose restart
+```
+
+**数据持久化**：
+
+Docker 模式会自动挂载以下目录到宿主机：
+- `./config` - 配置文件（Cookie、用户配置）
+- `./share` - 分享链接
+- `./downloads` - 下载的文件
+- `./logs` - 日志文件
+
+#### 方式二：命令行模式（CLI）
 
 适合个人使用，提供交互式界面。
 
@@ -53,7 +137,7 @@ python quark.py
 
 更多说明请浏览 [wiki](https://github.com/ihmily/QuarkPanTool/wiki) 页面
 
-#### 方式二：API 服务模式
+#### 方式三：API 服务模式（本地运行）
 
 适合二次开发和系统集成，提供 RESTful API 接口。
 
@@ -154,6 +238,15 @@ curl -X POST "http://localhost:8007/api/v1/share/batch-transfer-and-share" \
 
 ## 注意事项
 
+### Docker 模式注意事项
+
+- **首次构建**：首次构建镜像可能需要 5-10 分钟，因为需要下载 Firefox 浏览器和相关依赖。
+- **WSL2 环境**：如果你使用 Windows + WSL2 + Docker Desktop，请查看 [WSL2 设置指南](WSL2_SETUP.md)。
+- **端口映射**：默认映射 8007 端口，如需修改可在 `.env` 文件中配置 `PORT` 环境变量。
+- **数据持久化**：配置文件、日志等数据会保存在宿主机的相应目录中，删除容器不会丢失数据。
+- **Cookie 配置**（API 模式）：无需预先配置 `cookies.txt`，通过 `/api/v1/auth/login` 接口动态提交 Cookie 即可。
+- **资源占用**：由于包含浏览器环境，镜像大小约 1-2GB，运行时内存占用约 500MB-1GB。
+
 ### 通用注意事项
 
 - **首次登录**：首次运行会比较缓慢，程序会自动打开浏览器让你登录夸克网盘。登录完成后，请不要手动关闭浏览器，回到软件界面按 Enter 键，浏览器会自动关闭并保存登录信息。
@@ -198,8 +291,20 @@ QuarkPanTool/
 ├── .env                     # 环境变量配置（需自行创建）
 ├── .env.example             # 环境变量配置示例
 ├── requirements.txt         # Python 依赖
-├── start_api.sh            # Linux/macOS 启动脚本
-└── start_api.bat           # Windows 启动脚本
+├── Dockerfile               # Docker 镜像构建文件（国际版）
+├── Dockerfile.cn            # Docker 镜像构建文件（国内镜像源）
+├── docker-compose.yml       # Docker Compose 配置
+├── .dockerignore            # Docker 忽略文件
+├── DOCKER.md                # Docker 部署详细文档
+├── DOCKER_TROUBLESHOOTING.md # Docker 故障排查指南
+├── DOCKER_OPTIMIZATION.md   # Docker 优化说明
+├── QUICK_FIX.md             # 快速修复指南
+├── API_QUICKSTART.md        # API 快速开始指南
+├── start_api.sh            # Linux/macOS API 启动脚本
+├── start_api.bat           # Windows API 启动脚本
+├── start_docker.sh         # Linux/macOS Docker 启动脚本
+├── start_docker.bat        # Windows Docker 启动脚本
+└── test_docker.sh          # Docker 测试脚本
 ```
 
 ## 技术栈
@@ -210,6 +315,7 @@ QuarkPanTool/
 - **FastAPI**: RESTful API 框架
 - **Pydantic**: 数据验证和序列化
 - **uvicorn**: ASGI 服务器
+- **Docker**: 容器化部署（可选）
 
 ## 效果演示
 
@@ -261,6 +367,38 @@ Linux 环境下 Playwright 可能无法正常启动浏览器，建议手动获�
 
 系统内置了网络重试机制，单次请求失败会自动重试最多 3 次。如果 3 次都失败，会在批量处理结果中标记为失败，并返回错误信息。
 
+### 9. Docker 容器启动失败怎么办？
+
+检查以下几点：
+- 确认 Docker 服务是否正常运行：`docker ps`
+- 查看容器日志：`./start_docker.sh logs` 或 `docker-compose logs`
+- 检查端口是否被占用：`lsof -i:8007`（Linux/macOS）或 `netstat -ano | findstr 8007`（Windows）
+- 确认 `.env` 文件配置是否正确
+
+### 10. 如何在 Docker API 模式中使用自己的 Cookie？
+
+**推荐方式（动态提交）**：
+通过 `/api/v1/auth/login` 接口提交 Cookie，无需预先配置文件：
+
+```bash
+curl -X POST "http://localhost:8007/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cookies": "你的Cookie字符串"
+  }'
+```
+
+成功后会返回 Token，后续请求使用该 Token 即可。
+
+**可选方式（预配置）**：
+如果需要，也可以在 `config/cookies.txt` 中预先配置（主要用于 CLI 模式）。
+
+### 11. Docker 镜像太大怎么办？
+
+由于项目包含 Playwright 和 Firefox 浏览器，镜像大小约 1-2GB 是正常的。如果需要减小镜像大小，可以：
+- 使用 `docker image prune` 清理未使用的镜像
+- 在不需要登录功能时，可以考虑移除 Playwright 相关依赖（需要手动获取 Cookie）
+
 ## 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
@@ -298,6 +436,7 @@ Linux 环境下 Playwright 可能无法正常启动浏览器，建议手动获�
 - 📊 **改进错误处理** - 更详细的错误信息和调试日志
 - ⚙️ **优化配置项** - 更新环境变量配置，延长默认 Token 有效期至 240 小时
 - 🎯 **批量处理优化** - 自动添加请求延迟，避免触发服务器限制
+- 🐳 **新增 Docker 支持** - 提供完整的 Docker 部署方案，包含 Dockerfile、docker-compose 和启动脚本
 
 ## 许可证
 
